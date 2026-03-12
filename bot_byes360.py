@@ -258,131 +258,165 @@ class BotBYES360:
             self.log(traceback.format_exc(), "DEBUG")
             return False
 
+    def _find_account_section(self):
+        """Trouve le container Salesforce du champ Compte."""
+        section_selectors = [
+            "//records-record-layout-item[contains(@field-label, 'Compte')]",
+            "//div[contains(@class,'slds-form-element') and .//span[normalize-space()='Compte']]",
+            "//*[contains(@data-target-selection-name, 'AccountId') or contains(@data-target-selection-name, 'Account')]",
+            "//flexipage-field[contains(@data-field-id, 'Account') or contains(@data-field-id, 'AccountId')]",
+        ]
+        for sel in section_selectors:
+            try:
+                el = self.driver.find_element(By.XPATH, sel)
+                if el.is_displayed():
+                    return el
+            except Exception:
+                continue
+        return None
+
     def _find_account_field(self):
         """Trouve et clique sur le bouton d'édition du champ Compte."""
+        account_section = self._find_account_section()
+        scoped_edit_selectors = [
+            ".//button[contains(@title,'Modifier') and (contains(@title,'Compte') or contains(@title,'Account'))]",
+            ".//button[contains(@class,'inline-edit-trigger') or contains(@class,'slds-button_icon') ]",
+            ".//button[contains(@aria-label,'Modifier') or contains(@aria-label,'Edit')]",
+        ]
+
+        if account_section:
+            for sel in scoped_edit_selectors:
+                try:
+                    el = account_section.find_element(By.XPATH, sel)
+                    if el.is_displayed() and el.is_enabled():
+                        self.driver.execute_script("arguments[0].click();", el)
+                        WebDriverWait(self.driver, SHORT_WAIT).until(
+                            EC.presence_of_element_located((By.XPATH, "//input[contains(@placeholder,'Rechercher') or contains(@role,'combobox') or @type='search']"))
+                        )
+                        return el
+                except Exception:
+                    continue
+
+        # fallback global
         selectors = [
-            # Bouton edit inline Salesforce Lightning
             "//button[@title='Modifier Compte']",
             "//button[contains(@title,'Modifier') and contains(@title,'Compte')]",
-            "//a[contains(@class,'outputLookupLink') and ancestor::*[contains(.,'Compte')]]",
-            # Icône crayon à côté de Compte
-            "//div[contains(@class,'slds-form-element') and .//span[text()='Compte']]//button",
+            "//button[contains(@title,'Edit') and contains(@title,'Account')]",
+            "//a[contains(@class,'outputLookupLink') and ancestor::*[contains(.,'Compte') or contains(.,'Account')]]",
         ]
         for sel in selectors:
             try:
-                el = self.driver.find_element(By.XPATH, sel)
-                el.click()
-                time.sleep(1)
+                el = WebDriverWait(self.driver, SHORT_WAIT).until(EC.element_to_be_clickable((By.XPATH, sel)))
+                self.driver.execute_script("arguments[0].click();", el)
                 return el
             except Exception:
                 continue
 
-        # Fallback: chercher le lien Compte et cliquer sur l'icône crayon à côté
-        try:
-            # Hover sur le champ Compte pour faire apparaître le bouton edit
-            compte_label = self.driver.find_element(
-                By.XPATH, "//span[@class='test-id__field-label' and text()='Compte']"
-            )
-            parent = compte_label.find_element(By.XPATH, "ancestor::div[contains(@class,'slds-form-element')][1]")
-            edit_btn = parent.find_element(By.XPATH, ".//button[contains(@class,'slds-button')]")
-            edit_btn.click()
-            time.sleep(1)
-            return edit_btn
-        except Exception:
-            pass
-
         return None
 
     def _clear_account_field(self) -> bool:
-        """Efface la valeur du champ Compte."""
-        clear_selectors = [
-            # Bouton X via SVG data-key=close
-            "//*[local-name()='svg'][@data-key='close']/ancestor::button[1]",
-            # Icone inline-edit-trigger
-            "//button[.//*[contains(@class,'inline-edit-trigger-icon')]]",
+        """Efface la valeur du champ Compte sans impacter d'autres champs."""
+        account_section = self._find_account_section()
+        scoped_clear_selectors = [
+            ".//button[contains(@title,'Effacer') and (contains(@title,'Compte') or contains(@title,'Account'))]",
+            ".//button[contains(@aria-label,'Effacer') or contains(@aria-label,'Clear') or contains(@aria-label,'Remove')]",
+            ".//*[local-name()='svg'][@data-key='close']/ancestor::button[1]",
+            ".//button[contains(@class,'slds-input__icon')]",
+        ]
+
+        if account_section:
+            for sel in scoped_clear_selectors:
+                try:
+                    btn = account_section.find_element(By.XPATH, sel)
+                    if btn.is_displayed() and btn.is_enabled():
+                        self.driver.execute_script("arguments[0].click();", btn)
+                        time.sleep(0.3)
+                        self.log("Compte effacé via bouton clear du champ ✅")
+                        return True
+                except Exception:
+                    continue
+
+            try:
+                scoped_input = account_section.find_element(By.XPATH, ".//input[@type='text' or @type='search' or contains(@role,'combobox')]")
+                scoped_input.click()
+                scoped_input.send_keys(Keys.CONTROL + "a")
+                scoped_input.send_keys(Keys.DELETE)
+                return True
+            except Exception:
+                pass
+
+        # fallback global
+        for sel in [
             "//button[@title='Effacer la sélection Compte']",
             "//button[contains(@title,'Effacer') and contains(@title,'Compte')]",
             "//button[@title='Remove']",
-            "//button[contains(@class,'slds-input__icon--close')]",
-        ]
-        for sel in clear_selectors:
+        ]:
             try:
                 btn = self.driver.find_element(By.XPATH, sel)
-                if btn.is_displayed():
-                    btn.click()
-                    time.sleep(0.5)
-                    self.log(f"Compte effacé via sélecteur ✅")
+                if btn.is_displayed() and btn.is_enabled():
+                    self.driver.execute_script("arguments[0].click();", btn)
                     return True
             except Exception:
                 continue
 
-        # Fallback: vider le champ input directement
-        try:
-            input_field = self.driver.find_element(
-                By.XPATH,
-                "//input[contains(@placeholder,'Rechercher') and ancestor::*[contains(@class,'lookupField') or contains(@class,'lookup')]]"
-            )
-            input_field.clear()
-            input_field.send_keys(Keys.CONTROL + "a")
-            input_field.send_keys(Keys.DELETE)
-            return True
-        except Exception:
-            pass
-
         return False
 
-        def _type_account(self, account_name: str) -> bool:
-        """Tape le nom du compte dans le champ de recherche."""
+    def _type_account(self, account_name: str) -> bool:
+        """Tape le nom du compte dans le champ de recherche du lookup Compte."""
+        account_section = self._find_account_section()
         input_selectors = [
-            "//input[@placeholder='Rechercher des comptes...']",
-            "//input[contains(@placeholder,'Rechercher') and contains(@placeholder,'compte')]",
-            "//input[contains(@class,'lookup__search-input')]",
-            "//input[@type='search' and ancestor::*[contains(@class,'lookupField')]]",
-            "//div[contains(@class,'slds-combobox')]//input",
+            ".//input[@placeholder='Rechercher des comptes...']",
+            ".//input[contains(@placeholder,'Rechercher') and (contains(@placeholder,'compte') or contains(@placeholder,'Account'))]",
+            ".//input[contains(@class,'lookup__search-input') or contains(@class,'slds-combobox__input')]",
+            ".//input[@type='search' or contains(@role,'combobox')]",
         ]
-        for sel in input_selectors:
-            try:
-                field = self.driver.find_element(By.XPATH, sel)
-                field.clear()
-                field.send_keys(account_name)
-                return True
-            except Exception:
-                continue
 
-        # Fallback générique: chercher tout input visible dans la zone Compte
-        try:
-            inputs = self.driver.find_elements(By.XPATH, "//input[@type='text' or @type='search']")
-            for inp in inputs:
-                if inp.is_displayed() and inp.is_enabled():
-                    try:
-                        inp.clear()
-                        inp.send_keys(account_name)
+        containers = [account_section] if account_section else []
+        containers.append(self.driver)
+
+        for container in containers:
+            for sel in input_selectors:
+                try:
+                    field = container.find_element(By.XPATH, sel)
+                    if field.is_displayed() and field.is_enabled():
+                        field.click()
+                        field.send_keys(Keys.CONTROL + "a")
+                        field.send_keys(Keys.DELETE)
+                        field.send_keys(account_name)
                         return True
-                    except Exception:
-                        continue
-        except Exception:
-            pass
+                except Exception:
+                    continue
 
         return False
 
     def _select_dropdown_result(self) -> bool:
-        """Sélectionne le premier résultat dans la liste déroulante."""
+        """Sélectionne le premier résultat du lookup Compte."""
+        account_section = self._find_account_section()
         result_selectors = [
-            "//div[contains(@class,'slds-listbox')]//span[contains(@class,'slds-media__figure')]",
             "//ul[contains(@class,'slds-listbox')]//li[1]",
-            "//div[contains(@role,'option')][1]",
+            "//div[contains(@role,'listbox')]//*[contains(@role,'option')][1]",
             "//lightning-base-combobox-item[1]",
         ]
+
         for sel in result_selectors:
             try:
-                result = WebDriverWait(self.driver, 5).until(
+                result = WebDriverWait(self.driver, SHORT_WAIT).until(
                     EC.element_to_be_clickable((By.XPATH, sel))
                 )
-                result.click()
+                if account_section and account_section.is_displayed():
+                    self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", result)
+                self.driver.execute_script("arguments[0].click();", result)
                 return True
             except Exception:
                 continue
-        return False
+
+        try:
+            active_input = self.driver.find_element(By.XPATH, "//input[@type='search' or contains(@role,'combobox')]")
+            active_input.send_keys(Keys.ARROW_DOWN)
+            active_input.send_keys(Keys.ENTER)
+            return True
+        except Exception:
+            return False
 
     def _save_record(self) -> bool:
         """Clique sur le bouton Enregistrer."""
@@ -391,6 +425,7 @@ class BotBYES360:
             "//button[text()='Enregistrer']",
             "//button[contains(@class,'slds-button') and contains(text(),'Enregistrer')]",
             "//button[@title='Enregistrer']",
+            "//button[@name='SaveEdit' or normalize-space()='Save']",
         ]
         for sel in save_selectors:
             try:
